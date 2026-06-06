@@ -403,7 +403,7 @@ def _get_or_create_env(task_id: str):
     first use (same double-checked per-task lock pattern as file_tools._get_file_ops)."""
     from tools.terminal_tool_backends import _container_config_from_config, _create_environment, _ssh_config_from_config
     from tools.terminal_tool import (
-        _active_environments, _env_lock, _get_env_config, _last_activity,
+        _active_environments, _env_lock, _env_config_for_task, _last_activity,
         _start_cleanup_thread, _creation_locks, _creation_locks_lock, _task_env_overrides,
         _resolve_container_task_id, _resolve_task_host_cwd, _is_container_backend, _select_image,
     )
@@ -416,14 +416,14 @@ def _get_or_create_env(task_id: str):
         return env
     env = _cached()
     if env is not None:
-        return env, _get_env_config()["env_type"]
+        return env, _env_config_for_task(effective_task_id)["env_type"]
     with _creation_locks_lock:
         task_lock = _creation_locks.setdefault(effective_task_id, threading.Lock())
     with task_lock:
         env = _cached()
         if env is not None:
-            return env, _get_env_config()["env_type"]
-        config = _get_env_config()
+            return env, _env_config_for_task(effective_task_id)["env_type"]
+        config = _env_config_for_task(effective_task_id)
         env_type = config["env_type"]
         overrides = _task_env_overrides.get(effective_task_id, {})
         container_config = None
@@ -723,8 +723,13 @@ def execute_code(
                 "it could complete (SIGTERM propagates to child processes). "
                 "Run the lifecycle command from a shell outside the gateway."
             )
-    from tools.terminal_tool import _get_env_config, _docker_has_host_access
-    _env_config = _get_env_config()
+    # Pass task_id so per-skill backend overrides flip env_type appropriately (e.g. a skill
+    # with `backend: office-worker` routes to docker even when the global default is local).
+    from tools.terminal_tool import (
+        _env_config_for_task, _docker_has_host_access, _resolve_container_task_id,
+    )
+    effective_task_id = _resolve_container_task_id(task_id)
+    _env_config = _env_config_for_task(effective_task_id)
     env_type = _env_config["env_type"]
     # Arbitrary Python never passes through terminal()/DANGEROUS_PATTERNS, so guard the whole
     # script before either dispatch path spawns it — in this (tool-executor) thread, which holds

@@ -2362,11 +2362,13 @@ class GatewayTurnMixin:
         return sorted(_get_platform_tools(user_config, platform_key))
 
     def _resolve_turn_toolsets(self, user_config: dict, source: "SessionSource", platform_key: str):
-        """``(enabled_toolsets, disabled_toolsets)`` for an agent run on ``source``."""
+        """``(enabled_toolsets, disabled_toolsets, disabled_tools)`` for an agent run on ``source``."""
         from agent.skill_utils import parse_config_string_list
+        agent_cfg = user_config.get("agent") or {}
         enabled = self._resolve_enabled_toolsets_for_source(user_config, source, platform_key)
-        disabled = parse_config_string_list((user_config.get("agent") or {}).get("disabled_toolsets")) or None
-        return enabled, disabled
+        disabled = parse_config_string_list(agent_cfg.get("disabled_toolsets")) or None
+        disabled_tools = parse_config_string_list(agent_cfg.get("disabled_tools")) or None
+        return enabled, disabled, disabled_tools
 
     async def _run_background_task_inner(
         self, prompt: str, source: "SessionSource", task_id: str,
@@ -2400,7 +2402,7 @@ class GatewayTurnMixin:
                 return
 
             platform_key = _platform_config_key(source.platform)
-            enabled_toolsets, disabled_toolsets = self._resolve_turn_toolsets(user_config, source, platform_key)
+            enabled_toolsets, disabled_toolsets, disabled_tools = self._resolve_turn_toolsets(user_config, source, platform_key)
             pr = self._provider_routing
             max_iterations = _current_max_iterations()
             reasoning_config = self._resolve_session_reasoning_config(source=source, model=model)
@@ -2430,6 +2432,7 @@ class GatewayTurnMixin:
                     verbose_logging=False,
                     enabled_toolsets=enabled_toolsets,
                     disabled_toolsets=disabled_toolsets,
+                    disabled_tools=disabled_tools,
                     reasoning_config=reasoning_config,
                     service_tier=self._service_tier,
                     request_overrides=turn_route.get("request_overrides"),
@@ -2914,7 +2917,7 @@ class GatewayTurnMixin:
         from gateway.status_phrases import choose_status_phrase, resolve_status_phrase_catalog
         user_config = _load_gateway_config()
         platform_key = _platform_config_key(source.platform)
-        enabled_toolsets, disabled_toolsets = self._resolve_turn_toolsets(user_config, source, platform_key)
+        enabled_toolsets, disabled_toolsets, disabled_tools = self._resolve_turn_toolsets(user_config, source, platform_key)
         adapter = self._delivery_adapter_for(source)
         # Tool preview length (0 = no limit) and friendly tool labels (default on), per-platform.
         for _setter, _setting, _default, _cast in (
@@ -3005,7 +3008,8 @@ class GatewayTurnMixin:
                 logger.debug("Slack native task-card config check failed", exc_info=True)
         return self._RunAgentDisplay(
             user_config=user_config, platform_key=platform_key, enabled_toolsets=enabled_toolsets,
-            disabled_toolsets=disabled_toolsets, resolve_display_setting=resolve_display_setting,
+            disabled_toolsets=disabled_toolsets, disabled_tools=disabled_tools,
+            resolve_display_setting=resolve_display_setting,
             progress_mode=progress_mode, progress_grouping=progress_grouping,
             _display_surface_mode=_display_surface_mode,
             tool_progress_enabled=tool_progress_enabled, _live_status_mode=_live_status_mode,
@@ -3021,7 +3025,7 @@ class GatewayTurnMixin:
     _DISPLAY_TO_TURN_CTX = (
         "_live_status_adapter", "_live_status_mode", "_thinking_enabled", "progress_mode",
         "progress_grouping", "tool_progress_enabled", "log_queue", "resolve_display_setting",
-        "user_config", "enabled_toolsets", "disabled_toolsets", "log_mode_enabled",
+        "user_config", "enabled_toolsets", "disabled_toolsets", "disabled_tools", "log_mode_enabled",
         "interim_assistant_messages_enabled", "needs_progress_queue", "_native_slack_task_cards",
     )
 

@@ -197,10 +197,10 @@ def ensure_task_env(task_id: Optional[str] = None):
     """
     from tools.terminal_tool import (
         _active_environments, _creation_locks, _creation_locks_lock, _env_lock,
-        _get_env_config, _last_activity, _resolve_container_task_id,
+        _env_config_for_task, _last_activity, _resolve_container_task_id,
         _resolve_task_host_cwd, _select_image, _start_cleanup_thread, resolve_task_overrides,
     )
-    config = _get_env_config()
+    config = _env_config_for_task(task_id)
     env_type = config["env_type"]
     if env_type == "local":
         return None

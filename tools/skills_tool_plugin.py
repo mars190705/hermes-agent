@@ -139,6 +139,9 @@ def _serve_plugin_skill(
     if not _st.skill_matches_platform(parsed_frontmatter):
         return _fail(f"Skill '{qualified_name}' is not supported on this platform.",
                      readiness_status=SkillReadinessStatus.UNSUPPORTED.value)
+    # Mirrors the local-skill branch; before the file_path early-return so reading a
+    # sub-file of a backend-routed skill still binds the backend for this session.
+    _st._register_skill_backend(parsed_frontmatter, session_id, skill_md)
     if file_path:
         return _serve_skill_file(skill_md.parent, file_path, qualified_name, read_error_prefix=True)
     if any(p in content.lower() for p in _INJECTION_PATTERNS):

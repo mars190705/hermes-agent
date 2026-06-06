@@ -4400,6 +4400,7 @@ class GatewayRunner(
         ("compression", "proactive_prune_min_result_chars"),
         ("compression", "proactive_prune_min_reclaim_tokens"),
         ("compression", "min_tail_user_messages"), ("agent", "disabled_toolsets"),
+        ("agent", "disabled_tools"),
         ("memory", "provider"), ("checkpoints", "enabled"), ("checkpoints", "max_snapshots"),
         ("checkpoints", "max_total_size_mb"), ("checkpoints", "max_file_size_mb"))
 
@@ -4521,6 +4522,7 @@ class GatewayRunner(
         platform_key: Any = None
         enabled_toolsets: Any = None
         disabled_toolsets: Any = None
+        disabled_tools: Any = None
         resolve_display_setting: Any = None
         progress_mode: Any = None
         progress_grouping: Any = None
