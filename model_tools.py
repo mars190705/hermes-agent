@@ -325,6 +325,7 @@ def get_tool_definitions(
     disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
+    disabled_tools: List[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Get tool definitions for model API calls with toolset-based filtering.
@@ -340,6 +341,10 @@ def get_tool_definitions(
             tool_search / tool_describe bridge handlers so they can read the
             real catalog, not the already-collapsed one. Public callers should
             leave this False.
+        disabled_tools: Names of individual tools to drop from the final
+            schema list. Applied after toolset inclusion/exclusion. Useful
+            for small-context models where bulky-but-unused schemas (cronjob,
+            delegate_task, skill_manage, etc.) are pure overhead.
 
     Returns:
         Filtered list of OpenAI-format tool definitions.
@@ -367,6 +372,7 @@ def get_tool_definitions(
                 registry.current_scope_key(),
                 frozenset(enabled_toolsets) if enabled_toolsets is not None else None,
                 frozenset(disabled_toolsets) if disabled_toolsets else None,
+                frozenset(disabled_tools) if disabled_tools else None,
                 registry._generation,
                 cfg_fp,
                 bool(os.environ.get("HERMES_KANBAN_TASK")),
@@ -386,8 +392,13 @@ def get_tool_definitions(
             # schemas are treated as read-only by all known callers.
             return list(cached)
 
-    result = _compute_tool_definitions(enabled_toolsets, disabled_toolsets, quiet_mode,
-                                       skip_tool_search_assembly=skip_tool_search_assembly)
+    result = _compute_tool_definitions(
+        enabled_toolsets,
+        disabled_toolsets,
+        quiet_mode,
+        skip_tool_search_assembly=skip_tool_search_assembly,
+        disabled_tools=disabled_tools,
+    )
     if quiet_mode and cache_key is not None:
         # Cache the freshly-computed list, but hand callers a shallow copy so
         # downstream mutations (e.g. run_agent appending memory/LCM tool
@@ -419,8 +430,16 @@ def _compute_tool_definitions(
     disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
+    disabled_tools: List[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Uncached implementation of :func:`get_tool_definitions`."""
+    """Uncached implementation of :func:`get_tool_definitions`.
+
+    ``disabled_tools`` strips out individual tools by name AFTER the toolset
+    inclusion/exclusion logic. Useful for shrinking the per-call schema
+    payload on small-context models without restructuring toolsets — e.g.
+    ``disabled_tools=[\"cronjob\", \"delegate_task\", \"skill_manage\"]``
+    can reclaim ~17K chars / 4K tokens of prompt budget.
+    """
     # Determine which tool names the caller wants
     tools_to_include: set = set()
 
@@ -499,6 +518,15 @@ def _compute_tool_definitions(
                     print(f"🚫 Disabled legacy toolset '{toolset_name}': {', '.join(legacy_tools)}")
             elif not quiet_mode:
                 print(f"⚠️  Unknown toolset: {toolset_name}")
+
+    # Strip individually-disabled tool names. Runs AFTER toolset resolution
+    # so it overrides everything else.
+    if disabled_tools:
+        before = len(tools_to_include)
+        tools_to_include.difference_update(disabled_tools)
+        if not quiet_mode and before != len(tools_to_include):
+            stripped = sorted(set(disabled_tools) & {t for t in disabled_tools})
+            print(f"🚫 Disabled individual tools: {', '.join(stripped)}")
 
     # Plugin-registered tools are now resolved through the normal toolset
     # path — validate_toolset() / resolve_toolset() / get_all_toolsets()

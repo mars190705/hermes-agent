@@ -41,7 +41,7 @@ def _run_terminal(
     mock_env.execute.return_value = {"output": output, "returncode": returncode}
 
     monkeypatch.setattr(
-        terminal_tool_module, "_get_env_config", lambda: _make_env_config(tmp_path)
+        terminal_tool_module, "_get_env_config", lambda *a, **kw: _make_env_config(tmp_path)
     )
     monkeypatch.setattr(terminal_tool_module, "_start_cleanup_thread", lambda: None)
     monkeypatch.setattr(
@@ -97,7 +97,7 @@ def test_large_process_output_is_bounded_before_sudo_and_plugin_hooks(
     limit = 10_000
     monkeypatch.setattr("tools.tool_output_limits.get_max_bytes", lambda: limit)
     monkeypatch.setattr(
-        terminal_tool_module, "_get_env_config", lambda: _make_env_config(tmp_path)
+        terminal_tool_module, "_get_env_config", lambda *a, **kw: _make_env_config(tmp_path)
     )
     monkeypatch.setattr(terminal_tool_module, "_start_cleanup_thread", lambda: None)
     monkeypatch.setattr(

@@ -6344,6 +6344,7 @@ class TurnRunner:
                 verbose_logging=False,
                 enabled_toolsets=ctx.enabled_toolsets,
                 disabled_toolsets=ctx.disabled_toolsets,
+                disabled_tools=ctx.disabled_tools,
                 ephemeral_system_prompt=combined_ephemeral or None,
                 prefill_messages=self._runner._prefill_messages or None,
                 reasoning_config=reasoning_config,
@@ -25531,6 +25532,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             from agent.skill_utils import parse_config_string_list
 
             disabled_toolsets = parse_config_string_list(agent_cfg.get("disabled_toolsets")) or None
+            disabled_tools = parse_config_string_list(agent_cfg.get("disabled_tools")) or None
 
             pr = self._provider_routing
             max_iterations = _current_max_iterations()
@@ -25568,6 +25570,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     verbose_logging=False,
                     enabled_toolsets=enabled_toolsets,
                     disabled_toolsets=disabled_toolsets,
+                    disabled_tools=disabled_tools,
                     reasoning_config=reasoning_config,
                     service_tier=self._service_tier,
                     request_overrides=turn_route.get("request_overrides"),
@@ -31373,6 +31376,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         from agent.skill_utils import parse_config_string_list
 
         disabled_toolsets = parse_config_string_list(agent_cfg_local.get("disabled_toolsets")) or None
+        disabled_tools = parse_config_string_list(agent_cfg_local.get("disabled_tools")) or None
 
         display_config = user_config.get("display", {})
         if not isinstance(display_config, dict):
@@ -31619,6 +31623,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             user_config=user_config,
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
+            disabled_tools=disabled_tools,
             log_mode_enabled=log_mode_enabled,
             interim_assistant_messages_enabled=interim_assistant_messages_enabled,
             needs_progress_queue=needs_progress_queue,

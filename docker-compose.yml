@@ -35,6 +35,12 @@ services:
     network_mode: host
     volumes:
       - ~/.hermes:/opt/data
+      # Per-skill terminal backends (skills with `backend:` frontmatter) spawn
+      # sibling containers via the host's Docker daemon. Mounting the socket
+      # grants the gateway full control over the daemon — equivalent to root
+      # on the host. Acceptable for single-user/dev setups; remove for
+      # multi-tenant or untrusted deployments and disable per-skill routing.
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}

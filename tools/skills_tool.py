@@ -954,6 +954,20 @@ def _serve_plugin_skill(
             ensure_ascii=False,
         )
 
+    # Per-skill backend routing (mirrors the local-skill branch).  Registered
+    # before the `file_path` early-return below so that reading a sub-file of a
+    # backend-routed skill still binds the backend for this session.
+    backend_name = parsed_frontmatter.get("backend")
+    if isinstance(backend_name, str) and backend_name:
+        try:
+            from tools.terminal_tool import register_task_skill_backend
+            register_task_skill_backend(session_id, backend_name, source=str(skill_md))
+        except Exception:
+            logger.exception(
+                "Failed to register skill backend %r for plugin skill %s:%s",
+                backend_name, namespace, bare,
+            )
+
     if file_path:
         from tools.path_security import has_traversal_component, validate_within_dir
 
@@ -1513,6 +1527,22 @@ def skill_view(
                 },
                 ensure_ascii=False,
             )
+
+        # Per-skill backend routing: if the skill declares `backend:` in
+        # frontmatter, route subsequent terminal/exec calls in this task
+        # (or the gateway-default task when task_id is None) to the configured
+        # Docker image. Misconfig warns and falls back to the global default —
+        # never breaks skill_view.
+        backend_name = parsed_frontmatter.get("backend")
+        if isinstance(backend_name, str) and backend_name:
+            try:
+                from tools.terminal_tool import register_task_skill_backend
+                register_task_skill_backend(task_id, backend_name, source=str(skill_md))
+            except Exception:
+                logger.exception(
+                    "Failed to register skill backend %r for task_id=%s",
+                    backend_name, task_id,
+                )
 
         # If a specific file path is requested, read that instead
         if file_path and skill_dir:

@@ -373,6 +373,18 @@ DEFAULT_CONFIG = {
         # only controls how inbound user images are presented.
         "image_input_mode": "auto",
         "disabled_toolsets": [],
+        # Strip individual tool schemas by name (after toolset filtering).
+        # Useful for small-context models where bulky-but-unused schemas like
+        # cronjob, delegate_task, skill_manage are pure dead weight in the
+        # prompt — disabling them can reclaim 4K+ tokens.
+        "disabled_tools": [],
+        # Truncate per-skill descriptions in the system-prompt skills index to
+        # this many characters (0 = no truncation, current default). The first
+        # sentence is preferred when shorter than the limit; otherwise the
+        # description is clipped and an ellipsis appended. Useful for
+        # small-context models (32K) where the full descriptions push the
+        # initial prompt over the limit before any tool result fits.
+        "skills_index_max_description_chars": 0,
 
         # Per-model reasoning effort overrides (spelling-tolerant).
         # Dict mapping model names (any reasonable spelling) to effort levels.

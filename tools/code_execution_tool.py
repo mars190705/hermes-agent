@@ -882,7 +882,7 @@ def _get_or_create_env(task_id: str):
     with _env_lock:
         if effective_task_id in _active_environments:
             _last_activity[effective_task_id] = time.time()
-            return _active_environments[effective_task_id], _get_env_config()["env_type"]
+            return _active_environments[effective_task_id], _get_env_config(effective_task_id)["env_type"]
 
     # Slow path: create environment (same pattern as file_tools._get_file_ops)
     with _creation_locks_lock:
@@ -894,9 +894,9 @@ def _get_or_create_env(task_id: str):
         with _env_lock:
             if effective_task_id in _active_environments:
                 _last_activity[effective_task_id] = time.time()
-                return _active_environments[effective_task_id], _get_env_config()["env_type"]
+                return _active_environments[effective_task_id], _get_env_config(effective_task_id)["env_type"]
 
-        config = _get_env_config()
+        config = _get_env_config(effective_task_id)
         env_type = config["env_type"]
         overrides = _task_env_overrides.get(effective_task_id, {})
 
@@ -1592,9 +1592,17 @@ def execute_code(
                 "Run the lifecycle command from a shell outside the gateway."
             )
 
-    # Dispatch: remote backends use file-based RPC, local uses UDS
-    from tools.terminal_tool import _get_env_config, _docker_has_host_access
-    _env_config = _get_env_config()
+    # Dispatch: remote backends use file-based RPC, local uses UDS.
+    # Pass task_id so per-skill backend overrides flip env_type appropriately
+    # (e.g. a skill with `backend: office-worker` routes to docker even when
+    # the global default is local).
+    from tools.terminal_tool import (
+        _get_env_config,
+        _docker_has_host_access,
+        _resolve_container_task_id,
+    )
+    effective_task_id = _resolve_container_task_id(task_id)
+    _env_config = _get_env_config(effective_task_id)
     env_type = _env_config["env_type"]
 
     # execute_code runs arbitrary Python (subprocess/os.system/...) that never

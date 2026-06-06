@@ -1300,12 +1300,21 @@ def register_task_env_overrides(task_id: str, overrides: Dict[str, Any]):
     Register environment overrides for a specific task/rollout.
 
     Called by Atropos environments before the agent loop to configure
-    per-task sandbox settings (e.g., a custom Dockerfile for the Modal image).
+    per-task sandbox settings (e.g., a custom Dockerfile for the Modal image),
+    and by ``register_task_skill_backend`` to route a skill's terminal/exec
+    calls to a different Docker image.
 
     Supported override keys:
+        - env_type: str -- Backend type ("local", "docker", ...). Overrides
+            the ``TERMINAL_ENV`` env var when set.
         - modal_image: str -- Path to Dockerfile or Docker Hub image name
         - docker_image: str -- Docker image name
+        - docker_volumes: list[str] -- Extra ``host:container[:ro]`` mounts
+        - docker_forward_env: list[str] -- Env var names to forward
+        - docker_env: dict[str, str] -- Explicit env vars set in the container
         - cwd: str -- Working directory inside the sandbox
+        - skill_backend: str -- Informational; name of the skill backend
+            that requested this override (used for logging only)
 
     Args:
         task_id: The rollout's unique task identifier
@@ -1465,6 +1474,103 @@ def _has_isolation_overrides(task_id: Optional[str]) -> bool:
     if not task_id or task_id not in _task_env_overrides:
         return False
     return bool(set(_task_env_overrides[task_id].keys()) & _ISOLATION_OVERRIDE_KEYS)
+
+
+def register_task_skill_backend(
+    task_id: Optional[str],
+    backend_name: str,
+    source: Optional[str] = None,
+) -> bool:
+    """
+    Route a task's terminal/exec calls to a Docker image declared by a skill.
+
+    Looks up ``terminal.backends.<backend_name>`` in the loaded config and
+    installs an env override so that subsequent calls in the same task land in
+    that container instead of the global default backend. Called from
+    ``skills_tool.skill_view`` when a viewed skill's frontmatter declares
+    ``backend:``.
+
+    A ``task_id`` of ``None`` or empty string is treated as ``"default"`` —
+    the same key the top-level agent and all delegate subagents share via
+    ``_resolve_container_task_id``. This is intentional: in a single-user
+    gateway, the top-level agent's tool calls have ``task_id=None``, and we
+    want a skill-declared backend to take effect for them too.
+
+    No-op when:
+        * ``backend_name`` is empty
+        * the named backend is missing from config (logs a warning)
+        * the override is already in place (avoids spurious container churn)
+
+    When the override changes (or is new and a stale env exists for this
+    task), invalidates the active environment via ``cleanup_vm`` so the next
+    tool call rebuilds with the new image. Returns ``True`` if an override
+    was installed or updated, ``False`` otherwise.
+    """
+    if not backend_name:
+        return False
+    effective_task_id = task_id or "default"
+
+    try:
+        from hermes_cli.config import cfg_get, load_config
+        backends = cfg_get(load_config(), "terminal", "backends", default={}) or {}
+    except Exception:
+        logger.exception("register_task_skill_backend: could not read config")
+        return False
+
+    entry = backends.get(backend_name)
+    if not isinstance(entry, dict) or not entry.get("image"):
+        logger.warning(
+            "Skill backend %r (from %s) is not configured under terminal.backends — "
+            "falling back to global default. Add it to ~/.hermes/config.yaml to enable "
+            "per-skill routing.",
+            backend_name,
+            source or "<unknown skill>",
+        )
+        return False
+
+    new_override: Dict[str, Any] = {
+        "env_type": "docker",
+        "docker_image": entry["image"],
+        "skill_backend": backend_name,
+    }
+    if entry.get("volumes"):
+        new_override["docker_volumes"] = list(entry["volumes"])
+    if entry.get("forward_env"):
+        new_override["docker_forward_env"] = list(entry["forward_env"])
+    if entry.get("env"):
+        new_override["docker_env"] = dict(entry["env"])
+    if entry.get("cwd"):
+        new_override["cwd"] = entry["cwd"]
+    if "network" in entry:
+        new_override["docker_network"] = bool(entry["network"])
+
+    existing = _task_env_overrides.get(effective_task_id)
+    if existing == new_override:
+        return False
+
+    register_task_env_overrides(effective_task_id, new_override)
+
+    # If a sandbox is already running for this task, tear it down so the next
+    # terminal/exec call rebuilds with the new image. Mid-session env-type
+    # swaps (local → docker, docker → docker with new image) are not otherwise
+    # supported by the lifecycle code.
+    try:
+        cleanup_vm(effective_task_id)
+    except Exception:
+        logger.exception(
+            "register_task_skill_backend: cleanup_vm failed for task_id=%s; "
+            "the next tool call may still use the previous container.",
+            effective_task_id,
+        )
+
+    logger.info(
+        "Routing task_id=%s to skill backend %r (image=%s) from %s",
+        effective_task_id,
+        backend_name,
+        entry["image"],
+        source or "<unknown skill>",
+    )
+    return True
 
 
 def _resolve_container_task_id(task_id: Optional[str]) -> str:
@@ -1797,13 +1903,33 @@ def _ensure_terminal_env_bridged() -> None:
         logger.debug("terminal config → env fallback bridge failed", exc_info=True)
 
 
-def _get_env_config() -> Dict[str, Any]:
-    """Get terminal environment configuration from environment variables."""
+def _get_env_config(task_id: Optional[str] = None) -> Dict[str, Any]:
+    """Get terminal environment configuration from environment variables.
+
+    When *task_id* matches an entry in ``_task_env_overrides`` (registered by
+    benchmark environments or by ``register_task_skill_backend``), override
+    fields from that entry are layered on top of env-var-derived defaults.
+    Supported overrides: ``env_type``, ``docker_image``, ``docker_volumes``,
+    ``docker_forward_env``, ``docker_env``, ``cwd`` (and ``modal_image``
+    historically). The ``cwd`` default is recomputed when ``env_type`` is
+    overridden so we don't return a host path for a container backend.
+    """
+    # ``resolve_task_overrides`` reads the raw task id first, then the
+    # collapsed container id, so a skill-registered override still lands for
+    # top-level agent calls (task_id=None shares the "default" container per
+    # ``_resolve_container_task_id``).
+    overrides = resolve_task_overrides(task_id)
+
     # Default image with Python and Node.js for maximum compatibility
     default_image = "nikolaik/python-nodejs:python3.11-nodejs20"
     _ensure_terminal_env_bridged()
     env_type = _tenv("TERMINAL_ENV", "local")
-    
+    # A per-skill backend override flips the backend for this task, so it must
+    # land before the container/docker gating below - otherwise the
+    # Docker-only env vars stay unparsed for a task that does run in Docker.
+    if overrides and "env_type" in overrides:
+        env_type = overrides["env_type"]
+
     mount_docker_cwd = _tenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", "false").lower() in {"true", "1", "yes"}
     container_backend = _is_container_backend(env_type)
     docker_backend = env_type == "docker"
@@ -1872,13 +1998,37 @@ def _get_env_config() -> Dict[str, Any]:
                         cwd, env_type, default_cwd)
             cwd = default_cwd
 
+    # Layer per-task overrides on top of the env-var-derived values. The
+    # docker_* collections above are already gated on the (possibly
+    # overridden) backend, so this only replaces or extends what they hold.
+    docker_image = _tenv("TERMINAL_DOCKER_IMAGE", default_image)
+    modal_image = _tenv("TERMINAL_MODAL_IMAGE", default_image)
+    # bridge by default; a per-skill override may flip it to False (--network=none)
+    docker_network = _tenv("TERMINAL_DOCKER_NETWORK", "true").lower() in {"true", "1", "yes"}
+    if overrides:
+        if "modal_image" in overrides:
+            modal_image = overrides["modal_image"]
+        if "docker_image" in overrides:
+            docker_image = overrides["docker_image"]
+        if "docker_forward_env" in overrides:
+            docker_forward_env = list(overrides["docker_forward_env"])
+        if "docker_volumes" in overrides:
+            # Append override volumes so we don't lose env-var-configured ones
+            docker_volumes = list(docker_volumes) + list(overrides["docker_volumes"])
+        if "docker_env" in overrides:
+            docker_env = dict(overrides["docker_env"])
+        if "cwd" in overrides:
+            cwd = overrides["cwd"]
+        if "docker_network" in overrides:
+            docker_network = bool(overrides["docker_network"])
+
     return {
         "env_type": env_type,
         "modal_mode": coerce_modal_mode(_tenv("TERMINAL_MODAL_MODE", "auto")),
-        "docker_image": _tenv("TERMINAL_DOCKER_IMAGE", default_image),
+        "docker_image": docker_image,
         "docker_forward_env": docker_forward_env,
         "singularity_image": _tenv("TERMINAL_SINGULARITY_IMAGE", f"docker://{default_image}"),
-        "modal_image": _tenv("TERMINAL_MODAL_IMAGE", default_image),
+        "modal_image": modal_image,
         "daytona_image": _tenv("TERMINAL_DAYTONA_IMAGE", default_image),
         "vercel_runtime": _tenv("TERMINAL_VERCEL_RUNTIME", "").strip(),
         "cwd": cwd,
@@ -1908,7 +2058,7 @@ def _get_env_config() -> Dict[str, Any]:
         "docker_volumes": docker_volumes,
         "docker_env": docker_env,
         "docker_run_as_host_user": _tenv("TERMINAL_DOCKER_RUN_AS_HOST_USER", "false").lower() in {"true", "1", "yes"},
-        "docker_network": _tenv("TERMINAL_DOCKER_NETWORK", "true").lower() in {"true", "1", "yes"},
+        "docker_network": docker_network,
         "docker_extra_args": docker_extra_args,
         "docker_shm_size": docker_shm_size,
         # Cross-process container reuse (issue #20561).  The docs claim
@@ -2049,6 +2199,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             auto_mount_cwd=cc.get("docker_mount_cwd_to_workspace", False),
             forward_env=docker_forward_env,
             env=docker_env,
+            network=cc.get("docker_network", True),
             run_as_host_user=cc.get("docker_run_as_host_user", False),
             network=docker_network,
             extra_args=docker_extra_args,
@@ -2321,7 +2472,7 @@ def ensure_task_env(task_id: Optional[str] = None):
     instance, or ``None`` when local or when creation fails (best-effort: a
     failure leaves the caller's fail-closed error path intact).
     """
-    config = _get_env_config()
+    config = _get_env_config(task_id)
     env_type = config["env_type"]
     if env_type == "local":
         return None
@@ -2921,8 +3072,9 @@ def terminal_tool(
                 "status": "error",
             }, ensure_ascii=False)
 
-        # Get configuration
-        config = _get_env_config()
+        # Get configuration (a per-task override may select a different
+        # backend when a skill with `backend:` frontmatter has been viewed).
+        config = _get_env_config(task_id)
         env_type = "local" if _host_local else config["env_type"]
 
         # Fail closed under a refusal scope (#68559): the routed profile's

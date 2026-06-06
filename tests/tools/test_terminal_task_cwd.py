@@ -30,7 +30,7 @@ def test_foreground_command_uses_registered_task_cwd_for_existing_environment(mo
     monkeypatch.setattr(terminal_tool, "_active_environments", {task_id: FakeEnv()})
     monkeypatch.setattr(terminal_tool, "_last_activity", {})
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {task_id: {"cwd": "/workspace/acp"}})
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config())
+    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda *a, **kw: _minimal_terminal_config())
     monkeypatch.setattr(
         terminal_tool,
         "_check_all_guards",
@@ -57,7 +57,7 @@ def test_explicit_workdir_still_wins_over_registered_task_cwd(monkeypatch):
     monkeypatch.setattr(terminal_tool, "_active_environments", {task_id: FakeEnv()})
     monkeypatch.setattr(terminal_tool, "_last_activity", {})
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {task_id: {"cwd": "/workspace/acp"}})
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config())
+    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda *a, **kw: _minimal_terminal_config())
     monkeypatch.setattr(
         terminal_tool,
         "_check_all_guards",
@@ -140,7 +140,7 @@ def test_background_command_prefers_recorded_session_cwd_over_init_time_cwd(monk
     monkeypatch.setattr(terminal_tool, "_last_activity", {})
     monkeypatch.setattr(terminal_tool, "_session_cwd", {})
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {task_id: {"cwd": "/workspace/init"}})
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config(cwd="/workspace/init"))
+    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda *a, **kw: _minimal_terminal_config(cwd="/workspace/init"))
     monkeypatch.setattr(terminal_tool, "_start_cleanup_thread", lambda: None)
     monkeypatch.setattr(terminal_tool, "_resolve_container_task_id", lambda value: value or "default")
     monkeypatch.setattr(

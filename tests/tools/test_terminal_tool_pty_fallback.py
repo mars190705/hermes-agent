@@ -35,7 +35,7 @@ def test_terminal_background_keeps_pty_for_regular_interactive_commands(monkeypa
         captured.update(kwargs)
         return SimpleNamespace(id="proc_test", pid=1234, notify_on_complete=False)
 
-    monkeypatch.setattr(terminal_tool_module, "_get_env_config", lambda: config)
+    monkeypatch.setattr(terminal_tool_module, "_get_env_config", lambda *a, **kw: config)
     monkeypatch.setattr(terminal_tool_module, "_start_cleanup_thread", lambda: None)
     monkeypatch.setattr(terminal_tool_module, "_check_all_guards", lambda *_args, **_kwargs: {"approved": True})
     monkeypatch.setattr(process_registry_module.process_registry, "spawn_local", fake_spawn_local)

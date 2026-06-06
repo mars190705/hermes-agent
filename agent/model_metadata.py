@@ -1846,6 +1846,15 @@ def parse_available_output_tokens_from_error(error_msg: str) -> Optional[int]:
 
     Returns the number of output tokens that would fit (e.g. 10000 above), or None if
     the error does not look like a max_tokens-too-large error.
+
+    Also handles OpenAI / OpenRouter free-tier errors of the form:
+      "This model's maximum context length is 32768 tokens. However, you requested
+      8192 output tokens and your prompt contains at least 24577 input tokens, for
+      a total of at least 32769 tokens."
+    These are emitted by free-tier providers (e.g. minimax-m2.5:free) whose
+    advertised context (196K) doesn't match the actual cap (32K). The fix is the
+    same — lower max_tokens — so this function returns the available output budget
+    derived from `maximum_context - input_tokens`.
     """
     error_lower = error_msg.lower()
 

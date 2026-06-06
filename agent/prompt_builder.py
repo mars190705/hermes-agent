@@ -1931,6 +1931,19 @@ def _build_skills_system_prompt_inner(
     _platform_hint = _current_session_platform_hint()
     disabled = get_disabled_skill_names(_platform_hint or None)
     project_dirs = project_dirs or []
+    # Cache distinct entries per skills_index_max_description_chars value so
+    # config changes take effect without a restart-and-warm.
+    try:
+        from hermes_cli.config import cfg_get, load_config
+        _cache_max_desc = int(
+            cfg_get(
+                load_config(), "agent",
+                "skills_index_max_description_chars",
+                default=0,
+            ) or 0
+        )
+    except Exception:
+        _cache_max_desc = 0
     cache_key = (
         str(skills_dir),
         tuple(str(d) for d in external_dirs),
@@ -1940,6 +1953,7 @@ def _build_skills_system_prompt_inner(
         _platform_hint,
         tuple(sorted(disabled)),
         tuple(sorted(compact_categories or ())),
+        _cache_max_desc,
     )
     with _SKILLS_PROMPT_CACHE_LOCK:
         cached = _SKILLS_PROMPT_CACHE.get(cache_key)
@@ -2182,6 +2196,37 @@ def _build_skills_system_prompt_inner(
         _basic_tools = "web_search or terminal"
         if available_tools is not None and "web_search" not in available_tools:
             _basic_tools = "terminal"
+        # Optional: truncate per-skill descriptions to keep the index compact
+        # for small-context models. Reads ``agent.skills_index_max_description_chars``
+        # from config — 0 / unset means full descriptions (current default).
+        # When > 0, each description is clipped to that char count and a "…"
+        # appended if truncated. The first sentence is preferred when shorter
+        # than the limit, since it usually carries the trigger condition.
+        try:
+            from hermes_cli.config import cfg_get, load_config
+            _max_desc = int(
+                cfg_get(
+                    load_config(), "agent",
+                    "skills_index_max_description_chars",
+                    default=0,
+                ) or 0
+            )
+        except Exception:
+            _max_desc = 0
+
+        def _compact(desc: str) -> str:
+            if _max_desc <= 0 or not desc:
+                return desc
+            # Prefer a first-sentence clip when it already fits the budget,
+            # to avoid mid-sentence cut-offs.
+            for stop in (". ", "。", "! ", "? "):
+                idx = desc.find(stop)
+                if 0 < idx <= _max_desc:
+                    return desc[: idx + 1].strip()
+            if len(desc) <= _max_desc:
+                return desc
+            return desc[:_max_desc].rstrip() + "…"
+
         index_lines = []
         for category in sorted(skills_by_category.keys()):
             # Deduplicate and sort skills within each category
@@ -2199,8 +2244,9 @@ def _build_skills_system_prompt_inner(
                 if name in seen:
                     continue
                 seen.add(name)
-                if desc:
-                    index_lines.append(f"    - {name}: {desc}")
+                trimmed = _compact(desc)
+                if trimmed:
+                    index_lines.append(f"    - {name}: {trimmed}")
                 else:
                     index_lines.append(f"    - {name}")
 
