@@ -1,38 +1,60 @@
+# Windows-friendly compose file for Hermes Agent.
 #
-# docker-compose.windows.yml — Windows Docker Desktop compatible
-#
-# Differences from docker-compose.yml:
-#   - Removes `network_mode: host` (not supported on Docker Desktop for Windows)
-#   - Uses explicit port mappings instead
-#   - Uses Windows-style volume path for ~/.hermes
+# Differences from the upstream docker-compose.yml:
+#   - Uses bridge networking instead of network_mode: host, because Docker
+#     Desktop on Windows routes "host" to the WSL2 VM, not the Windows
+#     host — so localhost:9119 in a Windows browser would not see the
+#     dashboard otherwise.
+#   - Dashboard is published on 127.0.0.1:9119 only (not LAN-accessible).
+#   - Volumes use ${USERPROFILE}/.hermes so the path resolves on Windows.
+#   - .env is loaded via env_file so OPENROUTER_API_KEY / TELEGRAM_* land
+#     in both gateway and dashboard.
 #
 # Usage:
-#   docker compose -f docker-compose.windows.yml up -d
+#   docker compose -f docker-compose.windows.yml up -d --build
 #
 services:
   gateway:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes
     restart: unless-stopped
     volumes:
       - ${USERPROFILE}/.hermes:/opt/data
+      # Per-skill terminal backends spawn sibling containers via Docker
+      # Desktop's daemon. The Linux VM exposes the socket at the same path
+      # as native Linux, so the mount works identically. The leading double
+      # slash is required by Docker Desktop on Windows to prevent Git Bash /
+      # MSYS path-mangling. Required for skills with `backend:` frontmatter.
+      - //var/run/docker.sock:/var/run/docker.sock
+      # Resolve symlinks under ~/.hermes/skills/ that point at
+      # ~/.agents/skills/ (created by `npx skills add` from inside a
+      # container, with the path captured as /mnt/host/c/Users/<user>/...).
+      # Without this mount the symlinks dangle inside the gateway and
+      # skill_view() fails for the pptx/docx/xlsx/akshare-stock entries.
+      - ${USERPROFILE}/.agents:/mnt/host/c/Users/vincent/.agents:ro
+    env_file:
+      - .env
     environment:
-      - HERMES_UID=10000
-      - HERMES_GID=10000
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
     command: ["gateway", "run"]
 
   dashboard:
-    image: nousresearch/hermes-agent:latest
+    image: hermes-agent
     container_name: hermes-dashboard
     restart: unless-stopped
     depends_on:
       - gateway
     volumes:
       - ${USERPROFILE}/.hermes:/opt/data
+    env_file:
+      - .env
     environment:
-      - HERMES_UID=10000
-      - HERMES_GID=10000
-      - HERMES_DASHBOARD_HOST=0.0.0.0
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
     ports:
       - "127.0.0.1:9119:9119"
-    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
+    # --insecure is required to bind 0.0.0.0 inside the container.
+    # Safe here because the host port is published only on 127.0.0.1:9119.
+    command: ["dashboard", "--host", "0.0.0.0", "--no-open", "--insecure"]
