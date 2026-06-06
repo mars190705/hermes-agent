@@ -253,6 +253,17 @@ DEFAULT_CONFIG = {
         # vision_analyze and prepend the description. vision_analyze stays a tool regardless.
         "image_input_mode": "auto",
         "disabled_toolsets": [],
+        # Strip individual tool schemas by name (after toolset filtering).
+        # Useful for small-context models where bulky-but-unused schemas like
+        # cronjob, delegate_task, skill_manage are pure dead weight in the
+        # prompt — disabling them can reclaim 4K+ tokens.
+        "disabled_tools": [],
+        # Truncate per-skill descriptions in the system-prompt skills index to
+        # this many characters (0 = no truncation, current default). The first
+        # sentence is preferred when shorter than the limit; otherwise the
+        # description is clipped and an ellipsis appended.
+        "skills_index_max_description_chars": 0,
+
         # Model name (any reasonable spelling) -> effort level; overrides agent.reasoning_effort
         # when the current model matches. Edit in config.yaml (no CLI support: dots in keys).
         "reasoning_overrides": {},

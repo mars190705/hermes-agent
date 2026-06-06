@@ -393,7 +393,16 @@ as_hermes mkdir -p \
     "$HERMES_HOME/home" \
     "$HERMES_HOME/pairing" \
     "$HERMES_HOME/platforms/pairing" \
-    "$HERMES_HOME/lazy-packages"
+    "$HERMES_HOME/lazy-packages" \
+    "$HERMES_HOME/cache/documents"
+
+# Per-skill backend workers spawn as their own users (e.g. office-worker
+# runs as uid 10001) and write generated files to /work — bind-mounted
+# from cache/documents so the gateway can pick them up for Telegram/
+# Discord/etc. media delivery. Make the dir sticky world-writable so any
+# worker uid can drop files in without us tracking each image's user
+# mapping. Idempotent across restarts.
+chmod 1777 "$HERMES_HOME/cache/documents" 2>/dev/null || true
 
 # --- Install-method stamp ---
 # The 'docker' stamp is baked into the immutable install tree at

@@ -569,6 +569,20 @@ def _log_security_warnings(name: str, skill_md: Path, content: str, all_dirs, ac
         logger.warning("Skill security warning for '%s': %s", name, "; ".join(warnings))
 
 
+def _register_skill_backend(frontmatter: Dict[str, Any], task_id, skill_md) -> None:
+    """Per-skill backend routing: a skill declaring ``backend:`` in frontmatter routes this
+    task's terminal/exec calls to that configured Docker image. Misconfig warns and falls
+    back to the global default — this must never break skill_view."""
+    backend_name = frontmatter.get("backend")
+    if not isinstance(backend_name, str) or not backend_name:
+        return
+    try:
+        from tools.terminal_tool import register_task_skill_backend
+        register_task_skill_backend(task_id, backend_name, source=str(skill_md))
+    except Exception:
+        logger.exception("Failed to register skill backend %r for task_id=%s", backend_name, task_id)
+
+
 def skill_view(
     name: str, file_path: str = None, task_id: str = None, preprocess: bool = True) -> str:
     """View a skill (SKILL.md) or a file within its directory, as JSON. ``name`` is a skill name
@@ -605,6 +619,9 @@ def skill_view(
         resolved_name = frontmatter.get("name", skill_md.parent.name)
         if _is_skill_disabled(resolved_name):
             return _fail(f"Skill '{resolved_name}' is disabled. Enable it with `hermes skills` or inspect the files directly on disk.")
+        # Registered before the file_path early-return so reading a sub-file of a
+        # backend-routed skill still binds the backend for this session.
+        _register_skill_backend(frontmatter, task_id, skill_md)
         if file_path and skill_dir:
             return _serve_skill_file(
                 skill_dir, file_path, name, list_available=True, mark_read=True,

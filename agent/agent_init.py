@@ -1048,7 +1048,7 @@ def _init_fallback_chain(agent, fallback_model):
             print(f"🔄 Fallback chain ({len(chain)} providers): " + " → ".join(labels))
 
 
-def _load_tools(agent, enabled_toolsets, disabled_toolsets):
+def _load_tools(agent, enabled_toolsets, disabled_toolsets, disabled_tools=None):
     # A multiplexed gateway may have switched HERMES_HOME since model_tools was imported;
     # make sure this profile's plugins are discovered before the tool snapshot.
     try:
@@ -1066,6 +1066,7 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
     import model_tools
     agent.tools = model_tools.get_tool_definitions(
         enabled_toolsets=enabled_toolsets, disabled_toolsets=disabled_toolsets,
+        disabled_tools=disabled_tools,
         quiet_mode=agent.quiet_mode,
     )
     # A finite -q run has no later session to learn for: no skill authoring tool (agent/oneshot_footprint.py).
@@ -2227,7 +2228,7 @@ _PASSTHROUGH_PARAMS = (
     "providers_allowed", "providers_ignored", "providers_order", "provider_sort",
     "provider_require_parameters", "provider_data_collection", "openrouter_min_coding_score",
     # Toolset filtering
-    "enabled_toolsets", "disabled_toolsets",
+    "enabled_toolsets", "disabled_toolsets", "disabled_tools",
     # Model response configuration (None = provider/model default)
     "max_tokens", "reasoning_config", "service_tier",
 )
@@ -2253,6 +2254,7 @@ def init_agent(
     acp_command: str = None, acp_args: list[str] | None = None, command: str = None,
     args: list[str] | None = None, model: str = "", max_iterations: int = sys.maxsize,
     enabled_toolsets: List[str] = None, disabled_toolsets: List[str] = None,
+    disabled_tools: List[str] = None,
     save_trajectories: bool = False, verbose_logging: bool = False, quiet_mode: bool = False,
     tool_progress_mode: str = "all", ephemeral_system_prompt: str = None,
     log_prefix_chars: int = 100, log_prefix: str = "", providers_allowed: List[str] = None,
@@ -2359,7 +2361,7 @@ def init_agent(
     _set_defaults(agent, _STREAM_STATE)
     _build_client(agent, api_key, base_url, fallback_model)
     _init_fallback_chain(agent, fallback_model)
-    _load_tools(agent, enabled_toolsets, disabled_toolsets)
+    _load_tools(agent, enabled_toolsets, disabled_toolsets, disabled_tools)
     _init_session_state(
         agent, session_id, session_db, parent_session_id, reasoning_config, max_tokens,
         checkpoints_enabled, checkpoint_max_snapshots, checkpoint_max_total_size_mb, checkpoint_max_file_size_mb,

@@ -64,6 +64,7 @@ class TurnContext:
     mute_notification_reply: bool = False
     enabled_toolsets: Any = None
     disabled_toolsets: Any = None
+    disabled_tools: Any = None
     log_mode_enabled: bool = False
     interim_assistant_messages_enabled: bool = False
     needs_progress_queue: bool = False

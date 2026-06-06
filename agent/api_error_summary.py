@@ -181,10 +181,19 @@ class ApiErrorSummaryMixin:
         # (this path widens exposure vs the old empty-body "HTTP 400" string). See #36109.
         response = getattr(error, "response", None)
         if response is not None:
+            # A streaming httpx response raises httpx.ResponseNotRead (NOT AttributeError, so
+            # getattr's default won't catch it) when .text is touched before the body is consumed.
+            # Read it, then fall back defensively, so a real API error (e.g. an upstream 403) isn't
+            # masked by an opaque ResponseNotRead.
+            snippet = ""
             try:
                 snippet = (getattr(response, "text", None) or "").strip()
             except Exception:
-                snippet = ""
+                try:
+                    response.read()
+                    snippet = (getattr(response, "text", None) or "").strip()
+                except Exception:
+                    snippet = ""
             if snippet:
                 try:
                     payload = json.loads(snippet)

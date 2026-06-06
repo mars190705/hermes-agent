@@ -1333,6 +1333,28 @@ def _label_visible_entries(visible_entries: list[dict], skills_by_category: dict
         skills_by_category.setdefault(category, []).append((fm, desc))
 
 
+def _skills_index_max_description_chars() -> int:
+    """``agent.skills_index_max_description_chars`` from config (0 = no truncation)."""
+    try:
+        from hermes_cli.config import cfg_get, load_config
+        return int(cfg_get(load_config(), "agent", "skills_index_max_description_chars", default=0) or 0)
+    except Exception:
+        return 0
+
+
+def _compact_skill_description(desc: str, max_desc: int) -> str:
+    """Clip *desc* to *max_desc* chars, preferring a whole first sentence."""
+    if max_desc <= 0 or not desc:
+        return desc
+    for stop in (". ", "。", "! ", "? "):
+        idx = desc.find(stop)
+        if 0 < idx <= max_desc:
+            return desc[: idx + 1].strip()
+    if len(desc) <= max_desc:
+        return desc
+    return desc[:max_desc].rstrip() + "…"
+
+
 def _render_skills_index(
     skills_by_category: dict[str, list[tuple[str, str]]], category_descriptions: dict[str, str],
     compact_categories: "frozenset[str] | None", available_tools: "set[str] | None",
@@ -1350,6 +1372,8 @@ def _render_skills_index(
     ) if demoted else ""
     # Don't name web_search when the session has no web tools (dangling reference).
     _basic_tools = "terminal" if available_tools is not None and "web_search" not in available_tools else "web_search or terminal"
+    # Optional per-skill description truncation for small-context models; 0 = full descriptions.
+    _max_desc = _skills_index_max_description_chars()
     index_lines = []
     for category in sorted(skills_by_category):
         entries = skills_by_category[category]
@@ -1362,7 +1386,8 @@ def _render_skills_index(
         for name, desc in sorted(entries, key=lambda x: x[0]):  # stable: first entry per name wins
             if name not in seen:
                 seen.add(name)
-                index_lines.append(f"    - {name}: {desc}" if desc else f"    - {name}")
+                trimmed = _compact_skill_description(desc, _max_desc)
+                index_lines.append(f"    - {name}: {trimmed}" if trimmed else f"    - {name}")
     from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE, is_single_query_session
     if is_single_query_session():
         return (
@@ -1412,7 +1437,7 @@ def _build_skills_system_prompt_inner(
         tuple(sorted(str(t) for t in (available_tools or set()))),
         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
         _platform_hint, tuple(sorted(disabled)), tuple(sorted(compact_categories or ())),
-        _oneshot_prompt_variant(),
+        _oneshot_prompt_variant(), _skills_index_max_description_chars(),
     )
     with _SKILLS_PROMPT_CACHE_LOCK:
         cached = _SKILLS_PROMPT_CACHE.get(cache_key)
