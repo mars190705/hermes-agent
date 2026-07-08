@@ -2199,9 +2199,8 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             auto_mount_cwd=cc.get("docker_mount_cwd_to_workspace", False),
             forward_env=docker_forward_env,
             env=docker_env,
-            network=cc.get("docker_network", True),
-            run_as_host_user=cc.get("docker_run_as_host_user", False),
             network=docker_network,
+            run_as_host_user=cc.get("docker_run_as_host_user", False),
             extra_args=docker_extra_args,
             persist_across_processes=(
                 False if session_scoped
