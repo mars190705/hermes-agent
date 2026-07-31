@@ -3043,10 +3043,20 @@ class AIAgent:
         # widens exposure vs the old empty-body "HTTP 400" string).
         response = getattr(error, "response", None)
         if response is not None:
+            # A streaming httpx response raises httpx.ResponseNotRead (NOT
+            # AttributeError, so getattr's default won't catch it) when .text
+            # is touched before the body is consumed. Reading it first, then
+            # falling back defensively, keeps a real API error (e.g. an
+            # upstream 403) from being masked by an opaque ResponseNotRead.
+            snippet = ""
             try:
                 snippet = (getattr(response, "text", None) or "").strip()
             except Exception:
-                snippet = ""
+                try:
+                    response.read()
+                    snippet = (getattr(response, "text", None) or "").strip()
+                except Exception:
+                    snippet = ""
             if snippet:
                 status_code = getattr(error, "status_code", None)
                 prefix = f"HTTP {status_code}: " if status_code else ""

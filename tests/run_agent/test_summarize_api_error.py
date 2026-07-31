@@ -96,3 +96,35 @@ def test_unread_streaming_response_does_not_crash_and_falls_back_to_exception_me
     summary = AIAgent._summarize_api_error(err)
     assert "HTTP 429" in summary
     assert "Gemini HTTP 429: quota exceeded" in summary
+
+
+def test_unread_streaming_response_does_not_mask_error():
+    """An httpx streaming response whose body was never read raises
+    httpx.ResponseNotRead (NOT AttributeError) when .text is touched. The
+    native Gemini adapter hands back exactly such a response; before the fix
+    the summarizer let ResponseNotRead propagate, masking the real provider
+    error (e.g. a 403) with an opaque httpx crash. Contract: read the body,
+    then surface the real message."""
+    import httpx
+
+    body = b'{"error": {"message": "Your project has been denied access."}}'
+    response = httpx.Response(
+        403,
+        stream=httpx.ByteStream(body),
+        request=httpx.Request("POST", "https://example.test/v1"),
+    )
+    # Guard the premise: .text really does raise before being read.
+    try:
+        _ = response.text
+        raise AssertionError("expected ResponseNotRead on unread streaming body")
+    except httpx.ResponseNotRead:
+        pass
+
+    err = Exception("")
+    err.status_code = 403
+    err.body = None
+    err.response = response
+
+    summary = AIAgent._summarize_api_error(err)
+    assert "HTTP 403" in summary
+    assert "denied access" in summary

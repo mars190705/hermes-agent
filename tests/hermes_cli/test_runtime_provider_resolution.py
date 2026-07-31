@@ -1783,3 +1783,48 @@ def test_custom_provider_pool_target_model_wins(monkeypatch):
 
     assert resolved is not None
     assert resolved["model"] == "myproxy/gemini-flash"
+
+
+def test_explicit_provider_not_hijacked_by_local_config_base_url(monkeypatch):
+    """Regression: `hermes --provider gemini` must reach the named provider
+    even when config.yaml still carries a leftover local base_url.
+
+    The auto/unset path deliberately routes a local config base_url (e.g.
+    Ollama at localhost:11434) through the OpenAI-compatible resolver so env
+    cloud creds don't hijack it (#3846). But that block keyed only off the
+    CONFIG provider, not the CALLER's explicit request — so an explicit
+    `--provider gemini` was silently rerouted to the local endpoint (and on to
+    _resolve_openrouter_runtime), sending the request to the wrong place with
+    the wrong key. The explicit request must win.
+    """
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {"provider": "", "base_url": "http://localhost:11434/v1"},
+    )
+    # If the named-provider path is (wrongly) skipped, resolution would fall to
+    # the local base_url block. Make resolve_provider echo the request so we can
+    # assert we reached the named-provider branch rather than the hijack.
+    monkeypatch.setattr(rp, "resolve_provider", lambda req, **k: req)
+    monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+
+    resolved = rp.resolve_runtime_provider(requested="gemini", target_model="gemini-2.5-flash")
+
+    assert resolved["base_url"] != "http://localhost:11434/v1"
+    assert "openrouter.ai" not in (resolved.get("base_url") or "")
+    assert resolved["requested_provider"] == "gemini"
+
+
+def test_unset_provider_still_honors_local_config_base_url(monkeypatch):
+    """Guard the #3846 behavior the fix must NOT break: with no explicit
+    provider (requested resolves to 'auto'), a local config base_url is still
+    honored so the local model keeps working."""
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {"provider": "", "base_url": "http://localhost:11434/v1"},
+    )
+
+    resolved = rp.resolve_runtime_provider(requested=None)
+
+    assert resolved["base_url"] == "http://localhost:11434/v1"
