@@ -991,7 +991,12 @@ def _ladder_rungs(requested_provider, explicit_api_key, explicit_base_url, targe
     # endpoint (e.g. Ollama at localhost:11434), route through the OpenAI-compatible resolver instead of
     # letting resolve_provider() pick up an ANTHROPIC_API_KEY or OPENAI_API_KEY from the environment and
     # send the request to a cloud API. Fixes #3846.
-    if not explicit_base_url and not explicit_api_key:
+    # Only when the caller did NOT explicitly name a provider: `--provider gemini`
+    # (requested_provider="gemini") must not be hijacked by a leftover local base_url in
+    # config. _local_endpoint_bypass only gates on the CONFIG provider being auto/unset, so
+    # without this the bypass fires for an explicitly requested provider and sends the request
+    # to the wrong endpoint with the wrong key.
+    if not explicit_base_url and not explicit_api_key and requested_provider in ("auto", ""):
         yield _local_endpoint_bypass(requested_provider, explicit_api_key, explicit_base_url)
     provider = resolve_provider(requested_provider, explicit_api_key=explicit_api_key, explicit_base_url=explicit_base_url)
     model_cfg = _get_model_config()
