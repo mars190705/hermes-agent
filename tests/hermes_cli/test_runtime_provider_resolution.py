@@ -1802,11 +1802,19 @@ def test_explicit_provider_not_hijacked_by_local_config_base_url(monkeypatch):
         "_get_model_config",
         lambda: {"provider": "", "base_url": "http://localhost:11434/v1"},
     )
-    # If the named-provider path is (wrongly) skipped, resolution would fall to
-    # the local base_url block. Make resolve_provider echo the request so we can
-    # assert we reached the named-provider branch rather than the hijack.
-    monkeypatch.setattr(rp, "resolve_provider", lambda req, **k: req)
     monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+    # Supply the named provider's credential so resolution reaches a runtime
+    # instead of stopping at the missing-key AuthError. If the hijack regressed,
+    # resolution would never consult this and would return the local base_url.
+    monkeypatch.setattr(
+        rp,
+        "resolve_api_key_provider_credentials",
+        lambda provider: {
+            "provider": provider,
+            "api_key": "gemini-token",
+            "source": "GEMINI_API_KEY",
+        },
+    )
 
     resolved = rp.resolve_runtime_provider(requested="gemini", target_model="gemini-2.5-flash")
 
