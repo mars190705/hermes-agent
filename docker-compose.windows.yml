@@ -53,8 +53,22 @@ services:
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
+      # The dashboard is a web UI, not a messaging endpoint. Without this
+      # override it inherits TELEGRAM_BOT_TOKEN from env_file and boots a
+      # SECOND Telegram poller, which fights the gateway container for the
+      # same bot: both then loop forever on "Conflict: terminated by other
+      # getUpdates request". The adapter's is_enabled() gates on a non-blank
+      # token, so blanking it here disables Telegram for this service only —
+      # `environment:` takes precedence over `env_file:`.
+      - TELEGRAM_BOT_TOKEN=
     ports:
       - "127.0.0.1:9119:9119"
-    # --insecure is required to bind 0.0.0.0 inside the container.
-    # Safe here because the host port is published only on 127.0.0.1:9119.
-    command: ["dashboard", "--host", "0.0.0.0", "--no-open", "--insecure"]
+    # Binding 0.0.0.0 is required for Docker port publishing to reach the
+    # process. `--insecure` used to be the escape hatch that allowed that
+    # without auth; since the June 2026 hardening it is a NO-OP and a
+    # non-loopback bind is REFUSED unless an auth provider is configured —
+    # the container just crash-looped on startup. The gate is satisfied by
+    # dashboard.basic_auth (username + password_hash) in
+    # ${USERPROFILE}/.hermes/config.yaml. Exposure is still limited to
+    # 127.0.0.1 by the `ports:` mapping above.
+    command: ["dashboard", "--host", "0.0.0.0", "--no-open"]
