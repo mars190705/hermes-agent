@@ -165,6 +165,10 @@ class TestGetEnvConfigOverrides:
         assert cfg_other["docker_image"] != "custom:tag"
 
     def test_override_volumes_appended_not_replaced(self, monkeypatch):
+        # TERMINAL_DOCKER_VOLUMES is only parsed under the docker backend
+        # (upstream gates the Docker-only env vars so a stale value can't
+        # break a local terminal), so select it before asserting the append.
+        monkeypatch.setenv("TERMINAL_ENV", "docker")
         monkeypatch.setenv("TERMINAL_DOCKER_VOLUMES", '["/base:/base"]')
         terminal_tool.register_task_env_overrides(
             "t", {"docker_volumes": ["/extra:/extra"]}
