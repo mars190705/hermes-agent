@@ -2083,6 +2083,29 @@ def _get_env_config(task_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+# Identity of the real config builder, captured at import. Tests (upstream's
+# included) patch the module-global ``_get_env_config`` with stubs of varying
+# arity, so the wrapper below only forwards ``task_id`` to the genuine one.
+_ENV_CONFIG_IMPL = _get_env_config
+
+
+def _env_config_for_task(task_id: Optional[str] = None) -> Dict[str, Any]:
+    """Terminal config for *task_id*, honoring per-skill backend overrides.
+
+    Upstream reads ``_get_env_config()`` with no arguments; per-skill backend
+    routing (a skill whose frontmatter declares ``backend:``) needs the task
+    id to pick up its registered override. Forward the id only to the real
+    implementation so a patched zero-argument stub keeps working.
+    """
+    fn = _get_env_config
+    if fn is _ENV_CONFIG_IMPL:
+        return fn(task_id)
+    try:
+        return fn(task_id)
+    except TypeError:
+        return fn()
+
+
 def _get_modal_backend_state(modal_mode: object | None) -> Dict[str, Any]:
     """Resolve direct vs managed Modal backend selection."""
     return resolve_modal_backend_state(
@@ -2471,7 +2494,7 @@ def ensure_task_env(task_id: Optional[str] = None):
     instance, or ``None`` when local or when creation fails (best-effort: a
     failure leaves the caller's fail-closed error path intact).
     """
-    config = _get_env_config(task_id)
+    config = _env_config_for_task(task_id)
     env_type = config["env_type"]
     if env_type == "local":
         return None
@@ -3073,7 +3096,7 @@ def terminal_tool(
 
         # Get configuration (a per-task override may select a different
         # backend when a skill with `backend:` frontmatter has been viewed).
-        config = _get_env_config(task_id)
+        config = _env_config_for_task(task_id)
         env_type = "local" if _host_local else config["env_type"]
 
         # Fail closed under a refusal scope (#68559): the routed profile's
