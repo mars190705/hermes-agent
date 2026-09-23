@@ -35,8 +35,14 @@ def _stub_config(backends):
 
 
 def _no_op_cleanup():
-    """Stub cleanup_vm so tests don't try to tear down real containers."""
-    return patch.object(terminal_tool, "cleanup_vm", autospec=True)
+    """Stub cleanup_vm so tests don't try to tear down real containers.
+
+    Patch the canonical home (``terminal_tool_lifecycle``); the
+    ``tools.terminal_tool.cleanup_vm`` alias is a deprecated plugin-compat shim
+    that ``register_task_skill_backend`` no longer goes through.
+    """
+    from tools import terminal_tool_lifecycle
+    return patch.object(terminal_tool_lifecycle, "cleanup_vm", autospec=True)
 
 
 class TestRegisterTaskSkillBackend:
